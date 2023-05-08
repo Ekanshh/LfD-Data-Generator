@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>lfd_data_generator</name>
+  <version>0.0.0</version>
+  <description>The lfd_data_generator package</description>
+  <maintainer email="ekansh.sharma@smail.inf.h-brs.de">ekansh</maintainer>
+
+  <license>MIT</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>rospy</build_depend>
+  <build_export_depend>rospy</build_export_depend>
+  <exec_depend>rospy</exec_depend>
+
+
+  <export>
+  </export>
+</package>
