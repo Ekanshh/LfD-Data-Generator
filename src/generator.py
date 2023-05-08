@@ -5,23 +5,50 @@ from lfd_data_generator.simulator import Simulator
 from lfd_data_generator.demonstrator import Demonstrator
 import rospy
 from std_msgs.msg import String
+from geometry_msgs.msg import Pose
 
-class LfdDataGenerator(object):
+class LfdDataGenerator(Demonstrator):
+    """Generate demonstrations using Moveit and Panda in a simulated 
+       environment"""
+    
     def __init__(self):
-        rospy.init_node("lfd_data_generator", anonymous=True)
-        self.simulator = Simulator()
-        self.demo_generator = Demonstrator()
         
+        # Initialize the node
+        rospy.init_node("lfd_data_generator", anonymous=True)
+        
+        super(LfdDataGenerator, self).__init__()
+        
+        # Define the start and target poses for the demonstration
+        self.start_pose = self.create_pose_msg(pos_x=float("-0.21"), pos_y=0.21, pos_z=0.59)
+        self.target_pose = self.create_pose_msg(pos_x=0.7, pos_y=0.0, pos_z=0.59)
+        
+        # Trigger recording
         self.trigger_pub = rospy.Publisher('/trigger', 
-                                       String, 
-                                       queue_size=10)
-
+                                           String, 
+                                           queue_size=10)
+        
+        self.total_demonstrations = 10
+        
+    def create_pose_msg(self,
+                        pos_x: float,
+                        pos_y: float,
+                        pos_z: float):
+        """Create a Pose message"""
+        pose_msg = Pose()
+        pose_msg.position.x = pos_x
+        pose_msg.position.y = pos_y
+        pose_msg.position.z = pos_z
+        pose_msg.orientation.x = 1.0
+        return pose_msg 
+    
     def trigger(self, 
-                is_recording: bool,
+                is_recording: bool = False,
                 is_shutting_down: bool = False):
         """Send a trigger to start/stop recording the end effector pose
         """
+        
         trigger_msg = String()
+        
         if is_recording == True:
             trigger_msg.data = "e_start"
         elif is_recording == False:
@@ -30,36 +57,45 @@ class LfdDataGenerator(object):
             trigger_msg.data = "e_shutdown"
         else:
             trigger_msg.data = "e_unknown"
+            
         rospy.loginfo(f"Sending {trigger_msg.data} trigger...")
         self.trigger_pub.publish(trigger_msg)
         rospy.sleep(0.1)
             
     
     def run(self):
-        # Start the simulation
-        self.simulator.start_simulation()
-
-        for i in range(0, 10):
+        """Run the demonstration
+        """
+        print(f"Generating {self.total_demonstrations} demonstrations...")
+        
+        for i in range(0, self.total_demonstrations):
+            
+            print(f"Generating demonstration {i+1}...")
             
             # Go to the starting pose
-            start_success = self.demo_generator.go_to_start()
-            rospy.sleep(3.0)
-            
-            if start_success: 
-                # Generate motion plan to target pose
-                plan_success, plan = self.demo_generator.generate_motion_plan_to_target_pose()
-
-                if plan_success:
-                    
+            # Plan
+            has_start_plan, start_plan = \
+                self.generate_motion_plan(target_pose=self.start_pose)
+            rospy.sleep(0.1)
+            # Execute
+            if has_start_plan:
+                _ = self.execute_motion_plan(plan=start_plan)
+                rospy.sleep(0.1)
+                
+                # Go to the target pose
+                # Plan
+                has_target_plan, plan = \
+                    self.generate_motion_plan(target_pose=self.target_pose)
+                rospy.sleep(0.1)
+                if has_target_plan:
                     # Start recording
                     self.trigger(is_recording=True)
-                        
                     # Execute motion plan to target pose
-                    self.demo_generator.execute_motion_plan_to_target_pose(plan)
-
+                    _ = self.execute_motion_plan(plan)
                     # Stop recording
                     self.trigger(is_recording=False)
         
+        # Shut down the node
         self.trigger(is_shutting_down=True)
         rospy.signal_shutdown("Done")
         

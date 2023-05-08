@@ -13,24 +13,32 @@ class Recorder():
     """
 
     def __init__(self):
-        """Initialize the node
-        """
         
         super(Recorder, self).__init__()
         
+        # Initialize the node
         rospy.init_node("lfd_data_recorder", anonymous=True)
+        
+        # Subscribe to the trigger topic
         rospy.Subscriber("/trigger", 
                          String, 
                          self.trigger_callback)
+        
+        # Initialize the transform listener
         self.tflistener = tf.TransformListener()
+        
+        # End effector pose publisher and subscriber
+        rospy.Subscriber("/eef_pose", geometry_msgs.msg.PoseStamped, self.eef_pose_callback)
+        self.eef_pose_pub = rospy.Publisher("/eef_pose", geometry_msgs.msg.PoseStamped, queue_size=10)
+        
+        # Initialize the variables
         self.is_recording = False
         self.demo_numb = 0
         self.record_eef_poses = []
         self.save_eef_poses = []
         self.parent_link = 'world'
         self.link = 'panda_link8'
-        self.eef_pose_pub = rospy.Publisher("/eef_pose", geometry_msgs.msg.PoseStamped, queue_size=10)
-        rospy.Subscriber("/eef_pose", geometry_msgs.msg.PoseStamped, self.eef_pose_callback)
+        
 
     def trigger_callback(self, trigger_msg):
         """Callback function for trigger topic
@@ -102,6 +110,9 @@ class Recorder():
             rate.sleep()
 
 if __name__ == '__main__':
-    recorder = Recorder()
-    recorder.run()
-    rospy.spin()
+    try:
+        recorder = Recorder()
+        recorder.run()
+        rospy.spin()
+    except rospy.ROSInterruptException:
+        pass

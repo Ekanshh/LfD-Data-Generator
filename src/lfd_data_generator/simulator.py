@@ -1,38 +1,53 @@
 #!/usr/bin/env python
 
-import sys
-
 import rospy
-import moveit_commander
-import moveit_msgs.msg
-import geometry_msgs.msg
-import shape_msgs.msg
+from moveit_commander import RobotCommander, PlanningSceneInterface, MoveGroupCommander
+from moveit_msgs.msg import CollisionObject
+from geometry_msgs.msg import Pose, Point
+from shape_msgs.msg import SolidPrimitive
 
 
 class Simulator(object):
     """Panda Moveit Simulation"""
     
     def __init__(self):
+        """Initialize the node"""
         
         super(Simulator, self).__init__()
         
-        moveit_commander.roscpp_initialize(sys.argv)
-        
-        # Initialize the move group
-        self.robot = moveit_commander.RobotCommander()
-        self.scene = moveit_commander.PlanningSceneInterface()
+        # Initialize moveit 
+        self.robot = RobotCommander()
+        self.scene = PlanningSceneInterface()
         self.group_name = "panda_arm"
-        self.move_group = moveit_commander.MoveGroupCommander(self.group_name)
+        self.move_group = MoveGroupCommander(self.group_name)
         
-    
+        # Start the simulation
+        self.start_simulation()
+        rospy.sleep(0.1)
+        
     def start_simulation(self):
         """Start the simulation"""   
-        rospy.loginfo(f"Adding objects to the scene") 
-        # Add objects to the scene
-        self.add_wall()
-        self.add_peg_object()
-        self.attach_obj_to_eff("peg")
-        rospy.loginfo(f"Objects added to the scene")
+        rospy.logdebug(f"Adding objects to the scene...") 
+        
+        # Add wall to the scene
+        self.add_object(obj_id="wall",
+                        primitive_type=SolidPrimitive.BOX,
+                        dimensions=[0.1, 1.5, 0.5],
+                        pose=Pose(position=Point(x=0.5, y=0.0, z=0.25)),
+                        frame_id=self.move_group.get_planning_frame(),
+                        operation= CollisionObject().ADD)
+
+        # Attach peg to the robot end effector
+        peg_obj_id = "peg"
+        self.add_object(obj_id=peg_obj_id,
+                        primitive_type=SolidPrimitive.CYLINDER,
+                        dimensions=[0.20, 0.04],
+                        pose=Pose(position=Point(x=0., y=0., z=0.2)),
+                        frame_id=self.move_group.get_end_effector_link(),
+                        operation=CollisionObject().ADD)
+        self.attach_obj_to_eef(obj_id=peg_obj_id)
+        
+        rospy.logdebug(f"Objects added to the scene.")
     
         
     def add_collision_object(self, 
@@ -44,53 +59,41 @@ class Simulator(object):
                              operation):
         """Add a collision object to the scene
         """
-        rospy.logdebug(f"Add {obj_id} to the scene")
-        obj = moveit_msgs.msg.CollisionObject()
+        rospy.logdebug(f"Adding {obj_id} to the scene...")
+        
+        obj = CollisionObject()
         obj.header.frame_id = frame_id
         obj.id = obj_id
-        primitive = shape_msgs.msg.SolidPrimitive()
+        primitive = SolidPrimitive()
         primitive.type = primitive_type
         primitive.dimensions = dimensions
         obj.primitives.append(primitive)
         obj.primitive_poses.append(pose)
         obj.operation = operation
+        
         return self.scene.add_object(obj)
 
-    def add_wall(self):
-        """Add a wall to the scene
-        """
+    def add_object(self, 
+                   obj_id: str,
+                   primitive_type: SolidPrimitive,
+                   dimensions: list,
+                   pose: Pose,
+                   frame_id: str,
+                   operation: CollisionObject):
         
-        dimensions = [0.1, 1.5, 0.5]
-        pose = geometry_msgs.msg.Pose()
-        pose.orientation.w = 1.0
-        pose.position.x = 0.5
-        pose.position.y = 0.0
-        pose.position.z = 0.25
-        return self.add_collision_object("wall",
-                                         shape_msgs.msg.SolidPrimitive().BOX, 
-                                         dimensions, pose,
-                                         self.move_group.get_planning_frame(),
-                                         moveit_msgs.msg.CollisionObject().ADD)
+        """Add object to the scene
+        """
+        return self.add_collision_object(obj_id=obj_id,
+                                         primitive_type=primitive_type, 
+                                         dimensions=dimensions, 
+                                         pose=pose,
+                                         frame_id=frame_id,
+                                         operation=operation)
 
-    def add_peg_object(self):
-        """Add a peg to the scene
-        """
-        
-        dimensions = [0.20, 0.04]
-        pose = geometry_msgs.msg.Pose()
-        pose.orientation.w = 1.0
-        pose.position.z = 0.2
-        return self.add_collision_object("peg",
-                                         shape_msgs.msg.SolidPrimitive().CYLINDER, 
-                                         dimensions, 
-                                         pose, 
-                                         self.move_group.get_end_effector_link(), 
-                                         moveit_msgs.msg.CollisionObject().ADD)
-    
     def wait_for_state_update(self, 
-                              object_id, 
-                              object_is_known=False, 
-                              object_is_attached=False, 
+                              obj_id, 
+                              obj_is_known=False, 
+                              obj_is_attached=False, 
                               timeout=4):
         
         """Wait for the state update
@@ -99,12 +102,13 @@ class Simulator(object):
         start = rospy.get_time()
         seconds = rospy.get_time()
         while (seconds - start < timeout) and not rospy.is_shutdown():
-            attached_objects = self.scene.get_attached_objects([object_id])
+            attached_objects = self.scene.get_attached_objects([obj_id])
             is_attached = len(attached_objects.keys()) > 0
             
-            is_known = object_id in self.scene.get_known_object_names()
+            is_known = obj_id in self.scene.get_known_object_names()
 
-            if (object_is_attached==is_attached) and (object_is_known==is_known):
+            if (obj_is_attached==is_attached) and \
+                (obj_is_known==is_known):
                 return True
 
             # Sleep so that we give other threads time on the processor
@@ -113,16 +117,20 @@ class Simulator(object):
 
         return False
         
-    def attach_obj_to_eff(self, 
-                          object_id):
+    def attach_obj_to_eef(self, 
+                          obj_id: str):
         """Attach an object to the robot's end effector
         """
         
+        # Get the end effector link
         eef_link = self.move_group.get_end_effector_link()
+        # Get the grasping group
         grasping_group = "panda_hand"
         touch_links = self.robot.get_link_names(group=grasping_group)
-        self.scene.attach_box(eef_link, object_id, touch_links=touch_links)
-        return self.wait_for_state_update(object_id=object_id, 
-                                          object_is_known=True, 
-                                          object_is_attached=False, 
-                                          timeout=4)
+        # Attach the object
+        self.scene.attach_box(eef_link, obj_id, touch_links=touch_links)
+        
+        return self.wait_for_state_update(obj_id=obj_id, 
+                                          obj_is_known=True, 
+                                          obj_is_attached=False, 
+                                          timeout=10)
